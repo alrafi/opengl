@@ -1,3 +1,7 @@
+LIBS = -lGL -lGLEW -lglfw -lGLU -lglut #-lm -lXrandr -lXi -lX11 -lXxf86vm -lpthread -ldl -lXinerama -lXcursor -lrt
+BDIR = build
+
 all:
-	g++ dragon.cpp -o dragon -lglfw3 -lGL -lm -lXrandr -lXi -lX11 -lXxf86vm -lpthread -lGLEW -ldl -lGLU -lXinerama -lXcursor -lrt
-	g++ pentagon.cpp -o pentagon -lGL -lGLU -lglut
+	mkdir -p ${BDIR}
+	g++ dragon.cpp -o ${BDIR}/dragon ${LIBS}
+	g++ pentagon.cpp -o ${BDIR}/pentagon ${LIBS}
