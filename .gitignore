@@ -1,3 +1,6 @@
+# THIS PART ISN'T FROM gitignore.io #
+build/
+
 
 # Created by https://www.gitignore.io/api/c,c++
 # Edit at https://www.gitignore.io/?templates=c,c++
