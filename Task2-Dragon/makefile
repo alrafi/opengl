@@ -1,5 +1,5 @@
-LIBS = -lglfw3 -lGL -lm -lXrandr -lXi -lX11 -lXxf86vm -lpthread -lGLEW
-#-lGL -lGLEW -lglfw3 -lGLU -lglut #-lm -lXrandr -lXi -lX11 -lXxf86vm -lpthread -ldl -lXinerama -lXcursor -lrt
+LGLFW = `pkg-config --libs glfw3`
+LIBS = -lm -lGL -lGLEW ${LGLFW} -lGLU -lglut -lXrandr -lXi -lX11 -lXxf86vm -lpthread -ldl -lXinerama -lXcursor -lrt
 BDIR = build
 
 all:
