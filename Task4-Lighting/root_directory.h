@@ -1,0 +1,1 @@
+const char * logl_root = "/home/pisang/Documents/opengl/Task3-Jeep";
