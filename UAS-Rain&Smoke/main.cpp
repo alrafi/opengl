@@ -50,12 +50,7 @@ GLfloat lastFrame = 0.0f;
 
 GLfloat middlePoint[] = {0, 0, 0};
 GLfloat rad = 0.00f;
-const GLfloat CAR_RADIUS_COLLISION = 3.0f;
 const GLfloat OFFSET_SMOKE = 3.5f;
-const GLfloat CAR_SPEED_FAST = 0.3f;
-const GLfloat CAR_SPEED_MEDIUM = 0.2f;
-const GLfloat CAR_SPEED_SLOW = 0.1f;
-const int carLastIndex = 36 * 12 * 8; // 3456
 const int objectLastIndex = 36 * 15 * 8;
 GLfloat vertices[21000] =
     {
@@ -699,17 +694,6 @@ int main( )
     glfwTerminate( );
     
     return EXIT_SUCCESS;
-}
-
-bool CheckPositionLowerSpeed(GLfloat move) {
-    return (middlePoint[0] + move < 22.0f) && (middlePoint[0] - move > 8.0f) && (middlePoint[2] + move < 10.0f) && (middlePoint[2] - move > -10.0f);
-}
-
-bool CheckPositionCanMoveForward(GLfloat move) {
-    return (middlePoint[0] + move * sin(rad) < 38.0f) && (middlePoint[2] + move * cos(rad) < 20.0f) && (middlePoint[0] + move * sin(rad) > -8.0f) && (middlePoint[2] + move * cos(rad) > -20.0f);
-}
-bool CheckPositionCanMoveBackward(GLfloat move) {
-    return (middlePoint[0] - move * sin(rad) < 38.0f) && (middlePoint[2] - move * cos(rad) < 20.0f) && (middlePoint[0] - move * sin(rad) > -8.0f) && (middlePoint[2] - move * cos(rad) > -20.0f);
 }
 
 // Moves/alters the camera positions based on user input
