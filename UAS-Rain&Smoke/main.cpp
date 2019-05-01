@@ -1,2126 +1,718 @@
-#include "glad.h"
+// Std. Includes
+#include <string>
+#include <algorithm>
+#include <vector>
+
+// GLEW
+#define GLEW_STATIC
+#include <GL/glew.h>
+
+// GLFW
 #include <GLFW/glfw3.h>
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
 
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
+// GL includes
+#include "Shader.h"
+#include "Camera.h"
+#include "Texture.hpp"
+#include "shader.hpp"
 
-#include "shader.h"
-#include "camera.h"
+// GLM Mathemtics
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/norm.hpp>
 
-#include "filesystem.h"
-
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+// Other Libs
+#include "SOIL2/SOIL2.h"
 #include <math.h>
-#include <GL/glut.h>
 #include <GL/gl.h>
+#include <GL/glut.h>
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+// Properties
+const GLuint WIDTH = 800, HEIGHT = 600;
+int SCREEN_WIDTH, SCREEN_HEIGHT;
+
+// Function prototypes
+void KeyCallback( GLFWwindow *window, int key, int scancode, int action, int mode );
+void ScrollCallback( GLFWwindow *window, double xOffset, double yOffset );
+void MouseCallback( GLFWwindow *window, double xPos, double yPos );
 void processInput(GLFWwindow *window);
 
-// settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
-
-// camera
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
+// Camera
+Camera  camera(glm::vec3( 0.0f, 3.0f, 24.0f ) );
+GLfloat lastX = WIDTH / 2.0;
+GLfloat lastY = HEIGHT / 2.0;
+bool keys[1024];
 bool firstMouse = true;
 
-// timing
-float deltaTime = 0.0f;	// time between current frame and last frame
-float lastFrame = 0.0f;
+GLfloat deltaTime = 0.0f;
+GLfloat lastFrame = 0.0f;
 
-//lighting
-glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
-
-#define MAX_PARTICLES 1000
-#define RAIN    0
-#define SNOW    1
-#define HAIL    2
-
-float slowdown = 2.0;
-float velocity = 0.0;
-float zoom = -40.0;
-float pan = 0.0;
-float tilt = 0.0;
-float hailsize = 0.1;
-
-int loop;
-int fall = 0;
-
-//floor colors
-float r = 0.0;
-float g = 1.0;
-float b = 0.0;
-float ground_points[21][21][3];
-float ground_colors[21][21][4];
-float accum = -10.0;
-
-typedef struct {
-  // Life
-  bool alive;   // is the particle alive?
-  float life;   // particle lifespan
-  float fade; // decay
-  // color
-  float red;
-  float green;
-  float blue;
-  // Position/direction
-  float xpos;
-  float ypos;
-  float zpos;
-  // Velocity/Direction, only goes down in y dir
-  float vel;
-  // Gravity
-  float gravity;
-}particles;
-
-// Paticle System
-particles par_sys[MAX_PARTICLES];
-
-// Initialize/Reset Particles - give them their attributes
-void initParticles(int i) {
-    par_sys[i].alive = true;
-    par_sys[i].life = 1.0;
-    par_sys[i].fade = float(rand()%100)/1000.0f+0.003f;
-
-    par_sys[i].xpos = (float) (rand() % 21) - 10;
-    par_sys[i].ypos = 10.0;
-    par_sys[i].zpos = (float) (rand() % 21) - 10;
-
-    par_sys[i].red = 0.5;
-    par_sys[i].green = 0.5;
-    par_sys[i].blue = 1.0;
-
-    par_sys[i].vel = velocity;
-    par_sys[i].gravity = -0.8;//-0.8;
-}
-
-void init( ) {
-    // Initialize particles
-    for (loop = 0; loop < MAX_PARTICLES; loop++) {
-        initParticles(loop);
-    }
-}
-
-// For Rain
-void drawRain() {
-  float x, y, z;
-  for (loop = 0; loop < MAX_PARTICLES; loop=loop+2) {
-    if (par_sys[loop].alive == true) {
-      x = par_sys[loop].xpos;
-      y = par_sys[loop].ypos;
-      z = par_sys[loop].zpos + zoom;
-
-      // Draw particles
-      glColor3f(0.5, 0.5, 1.0);
-      glBegin(GL_LINES);
-        glVertex3f(x, y, z);
-        glVertex3f(x, y+0.5, z);
-      glEnd();
-
-      // Update values
-      //Move
-      // Adjust slowdown for speed!
-      par_sys[loop].ypos += par_sys[loop].vel / (slowdown*1000);
-      par_sys[loop].vel += par_sys[loop].gravity;
-      // Decay
-      par_sys[loop].life -= par_sys[loop].fade;
-
-      if (par_sys[loop].ypos <= -10) {
-        par_sys[loop].life = -1.0;
-      }
-      //Revive
-      if (par_sys[loop].life < 0.0) {
-        initParticles(loop);
-      }
-    }
-  }
-}
-
-// Draw Particles
-void drawScene( ) {
-  int i, j;
-  float x, y, z;
-
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glMatrixMode(GL_MODELVIEW);
-
-  glLoadIdentity();
-
-
-  glRotatef(pan, 0.0, 1.0, 0.0);
-  glRotatef(tilt, 1.0, 0.0, 0.0);
-
-  // GROUND?!
-  glColor3f(r, g, b);
-  glBegin(GL_QUADS);
-    // along z - y const
-    for (i = -10; i+1 < 11; i++) {
-      // along x - y const
-      for (j = -10; j+1 < 11; j++) {
-        glColor3fv(ground_colors[i+10][j+10]);
-        glVertex3f(ground_points[j+10][i+10][0],
-              ground_points[j+10][i+10][1],
-              ground_points[j+10][i+10][2] + zoom);
-        glColor3fv(ground_colors[i+10][j+1+10]);
-        glVertex3f(ground_points[j+1+10][i+10][0],
-              ground_points[j+1+10][i+10][1],
-              ground_points[j+1+10][i+10][2] + zoom);
-        glColor3fv(ground_colors[i+1+10][j+1+10]);
-        glVertex3f(ground_points[j+1+10][i+1+10][0],
-              ground_points[j+1+10][i+1+10][1],
-              ground_points[j+1+10][i+1+10][2] + zoom);
-        glColor3fv(ground_colors[i+1+10][j+10]);
-        glVertex3f(ground_points[j+10][i+1+10][0],
-              ground_points[j+10][i+1+10][1],
-              ground_points[j+10][i+1+10][2] + zoom);
-      }
-
-    }
-  glEnd();
-  // Which Particles
-  if (fall == RAIN) {
-    drawRain();
-  }
-}
-
-void reshape(int w, int h) {
-    if (h == 0) h = 1;
-
-    glViewport(0, 0, w, h);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-
-    gluPerspective(45, (float) w / (float) h, .1, 200);
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-}
-
-int main(int argc, char** argv)
-{
-    
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // uncomment this statement to fix compilation on OS X
-#endif
-
-    // glfw window creation
-    // --------------------
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Hujan Berasap", NULL, NULL);
-    if (window == NULL)
+GLfloat middlePoint[] = {0, 0, 0};
+GLfloat rad = 0.00f;
+const GLfloat CAR_RADIUS_COLLISION = 3.0f;
+const GLfloat OFFSET_SMOKE = 3.5f;
+const GLfloat CAR_SPEED_FAST = 0.3f;
+const GLfloat CAR_SPEED_MEDIUM = 0.2f;
+const GLfloat CAR_SPEED_SLOW = 0.1f;
+const int carLastIndex = 36 * 12 * 8; // 3456
+const int objectLastIndex = 36 * 15 * 8;
+GLfloat vertices[21000] =
     {
-        //std::cout << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetScrollCallback(window, scroll_callback);
-
-    // tell GLFW to capture our mouse
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-    // glad: load all OpenGL function pointers
-    // ---------------------------------------
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
-        //std::cout << "Failed to initialize GLAD" << std::endl;
-        return -1;
-    }
-    // Kan kene iso
-    // configure global opengl state
-    // -----------------------------
-    glEnable(GL_DEPTH_TEST);
-
-    // build and compile our shader zprogram
-    // ------------------------------------
-    Shader ourShader("7.4.camera.vs", "7.4.camera.fs");
-    Shader lightingShader("2.1.basic_lighting.vs", "2.1.basic_lighting.fs");
-    Shader lampShader("2.1.lamp.vs", "2.1.lamp.fs");
-    
-    // set up vertex data (and buffer(s)) and configure vertex attributes
-    // ------------------------------------------------------------------
-    float vertices[] = {
         // KOTAK 1
         //belakang
-        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
-         1.0f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 1.0f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 1.0f,
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+         1.0f, -0.5f, 6.5f,  1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+         1.0f,  0.5f, 6.5f,  1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+         1.0f,  0.5f, 6.5f,  1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        -1.0f,  0.5f, 6.5f,  0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
 
         //depan
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f,
-         1.0f,  0.5f,  0.5f,  1.0f, 1.0f, 1.0f,
-         1.0f,  0.5f,  0.5f,  1.0f, 1.0f, 1.0f,
-        -1.0f,  0.5f,  0.5f,  0.0f, 1.0f, 1.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
+        -1.0f, -0.5f,  7.5f,  0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+         1.0f, -0.5f,  7.5f,  1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+         1.0f,  0.5f,  7.5f,  1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+         1.0f,  0.5f,  7.5f,  1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        -1.0f,  0.5f,  7.5f,  0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  7.5f,  0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
 
         // kiri
-        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  0.5f, 6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  7.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
         //kanan
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  0.5f, 6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  7.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
          //bawah
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  7.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
 
         // atas
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f,  0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f,  0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  0.5f, 6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  0.5f,  7.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  0.5f,  7.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  0.5f, 6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
 
         // ===========KOTAK 2===========
         //belakang
-        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.5f,
-         1.0f, -0.5f, -1.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 4.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
         //depan
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.5f,
-         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.5f,
-        -1.0f,  1.5f,  0.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f,  6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f,  6.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f,  6.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
         // kiri
-        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
         //kanan
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
 
          //bawah
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-         1.0f, -0.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f, -0.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f, -0.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
 
         // atas
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
-        -1.0f,  1.5f,  0.5f,  0.0f, 0.0f, 0.5f,
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
-
-        // ===========KOTAK 3===========
-        // KOTAK 3
-        //belakang
-        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.5f,
-         0.15f, -0.25f, -0.25f,  1.0f, 0.0f, 0.5f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.5f,
-
-        //depan
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.5f,
-         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.5f,
-        -0.15f,  0.25f,  0.25f,  0.0f, 1.0f, 0.5f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-
-        // kiri
-        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-        -0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-
-        //kanan
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-         0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-
-         //bawah
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-         0.15f, -0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-
-        // atas
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
-        -0.15f,  0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
-
-        //======================================
-        //hujan
-        //belakang
-        -0.01f, -0.1f, -0.01f,  0.0f, 0.0f, 0.0f,
-         0.01f, -0.1f, -0.01f,  1.0f, 0.0f, 0.0f,
-         0.01f,  0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-         0.01f,  0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-        -0.01f,  0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-        -0.01f, -0.1f, -0.01f,  0.0f, 0.0f, 0.0f,
-
-        //depan
-        -0.01f, -0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-         0.01f, -0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-         0.01f,  0.1f,  0.01f,  1.0f, 1.0f, 0.0f,
-         0.01f,  0.1f,  0.01f,  1.0f, 1.0f, 0.0f,
-        -0.01f,  0.1f,  0.01f,  0.0f, 1.0f, 0.0f,
-        -0.01f, -0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-
-        // kiri
-        -0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-        -0.01f,  0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-        -0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-        -0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-        -0.01f, -0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-        -0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-
-        //kanan
-         0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-         0.01f,  0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-         0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-         0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-         0.01f, -0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-         0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-
-         //bawah
-        -0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-         0.01f, -0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-         0.01f, -0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-         0.01f, -0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-        -0.01f, -0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-        -0.01f, -0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-
-        // atas
-        -0.01f,  0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-         0.01f,  0.1f, -0.01f,  1.0f, 1.0f, 0.0f,
-         0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-         0.01f,  0.1f,  0.01f,  1.0f, 0.0f, 0.0f,
-        -0.01f,  0.1f,  0.01f,  0.0f, 0.0f, 0.0f,
-        -0.01f,  0.1f, -0.01f,  0.0f, 1.0f, 0.0f,
-
-        // Bidang Datar
-        //-5.0f,  0.0f, -5.0f,  0.0f, 1.0f, 0.0f,
-        // 5.0f,  0.0f, -5.0f,  1.0f, 1.0f, 0.0f,
-        // 5.0f,  0.0f,  5.0f,  1.0f, 0.0f, 0.0f,
-        // 5.0f,  0.0f,  5.0f,  1.0f, 0.0f, 0.0f,
-        //-5.0f,  0.0f,  5.0f,  0.0f, 0.0f, 0.0f,
-        //-5.0f,  0.0f, -5.0f,  0.0f, 1.0f, 0.0f,
+        -1.0f,  1.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f, 4.5f,  1.0f, 1.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+         1.0f,  1.5f,  6.5f,  1.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f,  6.5f,  0.0f, 0.0f, 0.5f, 1.0f, 1.0f,
+        -1.0f,  1.5f, 4.5f,  0.0f, 1.0f, 0.5f, 1.0f, 1.0f,
     };
-    // world space positions of our cubes
-    glm::vec3 cubePositions[] = {
-        glm::vec3( 0.0f,  -0.5f,  -4.0f),
-        glm::vec3( 0.0f,  -0.5f,  -5.0f),
-        glm::vec3( 0.9f,  -1.0f, -4.0f),
-        glm::vec3( -0.9f,  -1.0f, -4.0f),
-        glm::vec3( 0.9f,  -1.0f, -6.0f),
-        glm::vec3( -0.9f,  -1.0f, -6.0f),
 
-        glm::vec3(0.0f, -2.2f, 0.0f),
-        glm::vec3(0.0f, 4.0f, 0.0f),
+struct SmokeParticle{
+    glm::vec3 pos, speed;
+    unsigned char r,g,b,a; // Color
+    float size, angle, weight;
+    float life; // Remaining life of the SmokeParticle. if <0 : dead and unused.
+    float cameradistance; // *Squared* distance to the camera. if dead : -1.0f
 
-        glm::vec3( 2.4f, -0.4f, -3.5f),
-        glm::vec3(-1.7f,  3.0f, -7.5f),
-        glm::vec3( 1.3f, -2.0f, -2.5f),
-        glm::vec3( 1.5f,  2.0f, -2.5f),
-        glm::vec3( 1.5f,  0.2f, -1.5f),
-        glm::vec3(-1.3f,  1.0f, -1.5f)
-    };
-    unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    // texture coord attribute
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // second, configure the light's VAO (VBO stays the same; the vertices are the same for the light object which is also a 3D cube)
-    unsigned int lightVAO;
-    glGenVertexArrays(1, &lightVAO);
-    glBindVertexArray(lightVAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    // note that we update the lamp's position attribute's stride to reflect the updated buffer data
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // load and create a texture 
-    // -------------------------
-    unsigned int texture1, texture2;
-    // texture 1
-    // ---------
-    glGenTextures(1, &texture1);
-    glBindTexture(GL_TEXTURE_2D, texture1);
-    // set the texture wrapping parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    // set texture filtering parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    // load image, create texture and generate mipmaps
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
-
-    unsigned char *data = stbi_load(FileSystem::getPath("resources/textures/container.jpg").c_str(), &width, &height, &nrChannels, 0);
-    if (data)
-    {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
+    bool operator<(const SmokeParticle& that) const {
+        // Sort in reverse order : far particles drawn first.
+        return this->cameradistance > that.cameradistance;
     }
-    else
-    {
-        //std::cout << "Failed to load texture" << std::endl;
-    }
-    stbi_image_free(data);
-    // texture 2
-    // ---------
-    glGenTextures(1, &texture2);
-    glBindTexture(GL_TEXTURE_2D, texture2);
-    // set the texture wrapping parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    // set texture filtering parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    // load image, create texture and generate mipmaps
-    data = stbi_load(FileSystem::getPath("resources/textures/awesomeface.bmp").c_str(), &width, &height, &nrChannels, 0);
-    if (data)
-    {
-        // note that the awesomeface.png has transparency and thus an alpha channel, so make sure to tell OpenGL the data type is of GL_RGBA
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    else
-    {
-        //std::cout << "Failed to load texture" << std::endl;
-    }
-    stbi_image_free(data);
+};
 
-    // tell opengl for each sampler to which texture unit it belongs to (only has to be done once)
-    // -------------------------------------------------------------------------------------------
-    ourShader.use();
-    ourShader.setInt("texture1", 0);
-    ourShader.setInt("texture2", 1);
+const int MAX_SMOKE_PARTICLES = 100000;
+SmokeParticle ParticlesContainer[MAX_SMOKE_PARTICLES];
+int LastUsedParticle = 0;
 
-    // HUJAN PRIVATE ROOM ======================================
+float accum = -32.0f;
+float slowdown = 2.0;
+float velocity = 5.0;
+float zoom = -1.0f;
+bool starter = true;
+int loop;
+void initParticles(int i, bool starter);
+void init(bool starter);
+void drawRain(bool starter);
 
-    float incr = 0.5f;
-    float x,y,z;
-    int idx = 0;
+typedef struct {
+    // Life
+    bool alive; // is the particle alive?
+    float life; // particle lifespan
+    float fade; // decay
+    // color
+    float red; 
+    float green;
+    float blue;
+    // Position/direction
+    float xpos; 
+    float ypos; 
+    float zpos;
+    // Velocity/Direction, only goes down in y dir
+    float vel;
+    // Gravity
+    float gravity;
+}particles;
+const int MAX_RAIN_PARTICLES = 600;
+// Paticle System
+particles par_sys[MAX_RAIN_PARTICLES]; 
+int idxRain = objectLastIndex;
+GLfloat inc_x_rain[MAX_RAIN_PARTICLES] = { 0.0f };
+GLfloat inc_y_rain[MAX_RAIN_PARTICLES] = { 0.0f };
+GLfloat inc_z_rain[MAX_RAIN_PARTICLES] = { 0.0f };
+GLfloat init_x_rain[MAX_RAIN_PARTICLES] = { 0.0f };
+GLfloat init_z_rain[MAX_RAIN_PARTICLES] = { 0.0f };
 
-    // HUJAN 1
-    glm::vec3 hujanPositions[64];
-    
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
+
+
+
+// Finds a SmokeParticle in ParticlesContainer which isn't used yet.
+// (i.e. life < 0);
+int FindUnusedParticle(){
+
+    for(int i=LastUsedParticle; i<MAX_SMOKE_PARTICLES; i++){
+        if (ParticlesContainer[i].life < 0){
+            LastUsedParticle = i;
+            return i;
         }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 2
-    glm::vec3 hujanPositions1[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions1[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
     }
 
-    // HUJAN 3
-    glm::vec3 hujanPositions2[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions2[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
+    for(int i=0; i<LastUsedParticle; i++){
+        if (ParticlesContainer[i].life < 0){
+            LastUsedParticle = i;
+            return i;
         }
-        x += incr;
     }
 
-    // HUJAN 4
-    glm::vec3 hujanPositions3[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions3[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 5
-    glm::vec3 hujanPositions4[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions4[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 6
-    glm::vec3 hujanPositions5[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions5[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 7
-    glm::vec3 hujanPositions6[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions6[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 8
-    glm::vec3 hujanPositions7[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions7[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 9
-    glm::vec3 hujanPositions8[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -1.0f;
-            while (z < 1.0f) {
-                hujanPositions8[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // ===============
-    // HUJAN 11
-    glm::vec3 hujanPositions10[64];
-    
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions10[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 12
-    glm::vec3 hujanPositions11[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions11[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 13
-    glm::vec3 hujanPositions12[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions12[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 14
-    glm::vec3 hujanPositions13[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions13[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 15
-    glm::vec3 hujanPositions14[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions14[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 16
-    glm::vec3 hujanPositions15[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions15[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 17
-    glm::vec3 hujanPositions16[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions16[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 18
-    glm::vec3 hujanPositions17[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions17[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 19
-    glm::vec3 hujanPositions18[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -3.0f;
-            while (z < -1.0f) {
-                hujanPositions18[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // ===============
-    // HUJAN 21
-    glm::vec3 hujanPositions20[64];
-    
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions20[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 22
-    glm::vec3 hujanPositions21[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions21[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 23
-    glm::vec3 hujanPositions22[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions22[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 24
-    glm::vec3 hujanPositions23[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions23[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 25
-    glm::vec3 hujanPositions24[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions24[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 26
-    glm::vec3 hujanPositions25[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions25[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 27
-    glm::vec3 hujanPositions26[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions26[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 28
-    glm::vec3 hujanPositions27[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions27[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 29
-    glm::vec3 hujanPositions28[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -5.0f;
-            while (z < -3.0f) {
-                hujanPositions28[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // ===============
-    // HUJAN 21
-    glm::vec3 hujanPositions30[64];
-    
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions30[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 22
-    glm::vec3 hujanPositions31[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions31[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 23
-    glm::vec3 hujanPositions32[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = -1.0f;
-        while (y < 1.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions32[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 24
-    glm::vec3 hujanPositions33[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions33[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 25
-    glm::vec3 hujanPositions34[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions34[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 26
-    glm::vec3 hujanPositions35[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 1.0f;
-        while (y < 3.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions35[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 27
-    glm::vec3 hujanPositions36[64];
-      
-    idx = 0;
-    x = -1.0f;
-    while (x < 1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions36[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-    printf("index = %d\n", idx);
-
-    // HUJAN 28
-    glm::vec3 hujanPositions37[64];
-    
-    idx = 0;
-    x = -3.0f;
-    while (x < -1.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions37[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    // HUJAN 39
-    glm::vec3 hujanPositions38[64];
-    
-    idx = 0;
-    x = 1.0f;
-    while (x < 3.0f) {
-        y = 3.0f;
-        while (y < 5.0f) {
-            z = -7.0f;
-            while (z < -5.0f) {
-                hujanPositions38[idx] = glm::vec3(x,y,z);
-                z += incr;
-                idx += 1;
-            }
-            y += incr;
-        }
-        x += incr;
-    }
-
-    float yhujan = 4.0f;
-    float yhujan1 = 6.0f;
-    float yhujan2 = 8.0f;
-    float decr = 0.05f;
-  
-    init();
-    drawScene();
-  
-    // ======================================================
-    // render loop
-    // -----------
-    while (!glfwWindowShouldClose(window))
-    {
-        glm::vec3 poshujan(0.0f, yhujan, -2.5f);
-        // per-frame time logic
-        // --------------------
-        float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
-        // input
-        // -----
-        processInput(window);
-
-        // render
-        // ------
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
-
-        // bind textures on corresponding texture units
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture1);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, texture2);
-
-        // activate shader
-        ourShader.use();
-
-        lightingShader.use();
-        lightingShader.setVec3("objectColor", 1.0f, 0.5f, 0.31f);
-        lightingShader.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
-        lightingShader.setVec3("lightPos", lightPos);
-
-        // pass projection matrix to shader (note that in this case it could change every frame)
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-        glm::mat4 view = camera.GetViewMatrix();
-        lightingShader.setMat4("projection", projection);
-        lightingShader.setMat4("view", view);
-
-        ourShader.setMat4("projection", projection);
-
-        // camera/view transformation
-        ourShader.setMat4("view", view);
-
-        // render boxes
-        glBindVertexArray(VAO);
-        for (unsigned int i = 0; i < 2310; i++)
-        {
-            int mboh = 0;
-            int startidx;
-            if (i == 0) {
-                startidx = 0;
-            } else if (i == 1){
-                startidx = 36;
-            } else if ((i > 1) && (i < 6)) {
-                startidx = 72;
-            } else {
-                mboh = 1;
-                startidx = 108;
-            }
-            // calculate the model matrix for each object and pass it to shader before drawing
-            glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
-            if (mboh == 0) {
-                model = glm::translate(model, cubePositions[i]);
-            } else {
-                if (i > 70) {
-                    model = glm::translate(model, hujanPositions1[i-70]);
-                } else if (i > 134) {
-                    model = glm::translate(model, hujanPositions2[i-134]);
-                } else if (i > 198 ) {
-                    model = glm::translate(model, hujanPositions3[i-198]);
-                } else if (i > 262 ) {
-                    model = glm::translate(model, hujanPositions4[i-262]);
-                } else if (i > 326 ) {
-                    model = glm::translate(model, hujanPositions5[i-326]);
-                } else if (i > 390 ) {
-                    model = glm::translate(model, hujanPositions6[i-390]);
-                } else if (i > 454 ) {
-                    model = glm::translate(model, hujanPositions7[i-454]);
-                } else if (i > 518 ) {
-                    model = glm::translate(model, hujanPositions8[i-518]);
-                } else if (i > 582 ) {
-                    model = glm::translate(model, hujanPositions10[i-582]);
-                } else if (i > 646 ) {
-                    model = glm::translate(model, hujanPositions11[i-646]);
-                } else if (i > 710 ) {
-                    model = glm::translate(model, hujanPositions12[i-710]);
-                } else if (i > 774 ) {
-                    model = glm::translate(model, hujanPositions13[i-774]);
-                } else if (i > 838 ) {
-                    model = glm::translate(model, hujanPositions14[i-838]);
-                } else if (i > 902 ) {
-                    model = glm::translate(model, hujanPositions15[i-902]);
-                } else if (i > 966 ) {
-                    model = glm::translate(model, hujanPositions16[i-966]);
-                } else if (i > 1030 ) {
-                    model = glm::translate(model, hujanPositions17[i-1030]);
-                } else if (i > 1094 ) {
-                    model = glm::translate(model, hujanPositions18[i-1094]);
-                } else {
-                    model = glm::translate(model, hujanPositions[i-6]);
-                }
-            }
-            
-            lightingShader.setMat4("model", model);
-            
-            float angle = 20.0f * i;
-            //model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
-            ourShader.setMat4("model", model);
-
-            glDrawArrays(GL_TRIANGLES, startidx, startidx+36);
-        }
-
-        //glm::mat4 model = glm::mat4(1.0f);
-        //model = glm::translate(model, cubePositions[6]);
-
-        //lightingShader.setMat4("model", model);
-
-        //ourShader.setMat4("model", model);
-
-        //glDrawArrays(GL_TRIANGLES, 144, 150);
-        // =================================
-        if (yhujan < -2.0f) {
-            yhujan = 4.0f;
-        }
-        if (yhujan1 < -2.0f) {
-            yhujan1 = 4.0f;
-        }
-        if (yhujan2 < -2.0f) {
-            yhujan2 = 4.0f;
-        }
-        yhujan -= decr;
-        yhujan1 -= decr;
-        yhujan2 -= decr;
-
-        // HUJAN 1
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 2
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions1[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 3
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions2[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 4
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions3[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 5
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions4[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 6
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions5[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 7
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions6[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 8
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions7[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 9
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -1.0f;
-                while (z < 1.0f) {
-                    hujanPositions8[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 11
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions10[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 12
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions11[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 13
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions12[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 14
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions13[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 15
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions14[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 16
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions15[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 17
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions16[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 18
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions17[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 19
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -3.0f;
-                while (z < -1.0f) {
-                    hujanPositions18[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 21
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions20[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 22
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions21[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 23
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions22[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 24
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions23[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 25
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions24[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 26
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions25[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 27
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions26[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 28
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions27[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 29
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -5.0f;
-                while (z < -3.0f) {
-                    hujanPositions28[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 21
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions30[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 22
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions31[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 23
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions32[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 24
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions33[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 25
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions34[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 26
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan1;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions35[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 27
-        idx = 0;
-        x = -1.0f;
-        while (x < 1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions36[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 28
-        idx = 0;
-        x = -3.0f;
-        while (x < -1.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions37[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-
-        // HUJAN 29
-        idx = 0;
-        x = 1.0f;
-        while (x < 3.0f) {
-            y = yhujan2;
-            int count = 0;
-            while (count < 4) {
-                z = -7.0f;
-                while (z < -5.0f) {
-                    hujanPositions38[idx] = glm::vec3(x,y,z);
-                    z += incr;
-                    idx += 1;
-                }
-                count += 1;
-                y += incr;
-            }
-            x += incr;
-        }
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        //printf("in\n");
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-        
-    }
-
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteVertexArrays(1, &lightVAO);
-    glDeleteBuffers(1, &VBO);
-
-    // glfw: terminate, clearing all previously allocated GLFW resources.
-    // ------------------------------------------------------------------
-    glfwTerminate();
-    return 0;
+    return 0; // All particles are taken, override the first one
 }
 
-// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
-// ---------------------------------------------------------------------------------------------------------
+void SortParticles(){
+    std::sort(&ParticlesContainer[0], &ParticlesContainer[MAX_SMOKE_PARTICLES]);
+}
+
+// The MAIN function, from here we start our application and run our Game loop
+int main( )
+{
+    // Init GLFW
+    glfwInit( );
+    glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, 3 );
+    glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, 3 );
+    glfwWindowHint( GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE );
+    glfwWindowHint( GLFW_RESIZABLE, GL_FALSE );
+    glfwWindowHint( GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE );
+    
+    GLFWwindow* window = glfwCreateWindow( WIDTH, HEIGHT, "Hujan Agak Deras", nullptr, nullptr ); // Windowed
+    
+    if ( nullptr == window )
+    {
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate( );
+        
+        return EXIT_FAILURE;
+    }
+
+    init(starter);
+    drawRain(starter);
+    starter = false;
+    
+    glfwMakeContextCurrent( window );
+    
+    glfwGetFramebufferSize( window, &SCREEN_WIDTH, &SCREEN_HEIGHT );
+    
+    // Set the required callback functions
+    glfwSetKeyCallback( window, KeyCallback );
+    glfwSetCursorPosCallback( window, MouseCallback );
+    glfwSetScrollCallback( window, ScrollCallback );
+    
+    // Options, removes the mouse cursor for a more immersive experience
+    glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
+    
+    // Set this to true so GLEW knows to use a modern approach to retrieving function pointers and extensions
+    glewExperimental = GL_TRUE;
+    // Initialize GLEW to setup the OpenGL Function pointers
+    if ( GLEW_OK != glewInit( ) )
+    {
+        std::cout << "Failed to initialize GLEW" << std::endl;
+        return EXIT_FAILURE;
+    }
+    
+    // Define the viewport dimensions
+    glViewport( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT );
+    
+    // Setup some OpenGL options
+    glEnable( GL_DEPTH_TEST );
+    
+    // enable alpha support
+    glEnable( GL_BLEND );
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+    
+    // Setup and compile our shaders
+    Shader lightShader( "res/shaders/light.vs", "res/shaders/light.frag" );
+    
+    glm::vec3 cubePositions[] =
+    {
+        glm::vec3( 0.0f, 0.0f, 0.0f ),
+        glm::vec3( 2.0f, 5.0f, -15.0f ),
+        glm::vec3( -1.5f, -2.2f, -2.5f ),
+        glm::vec3( -3.8f, -2.0f, -12.3f ),
+        glm::vec3( 2.4f, -0.4f, -3.5f ),
+        glm::vec3( -1.7f, 3.0f, -7.5f ),
+        glm::vec3( 1.3f, -2.0f, -2.5f ),
+        glm::vec3( 1.5f, 2.0f, -2.5f ),
+        glm::vec3( 1.5f, 0.2f, -1.5f ),
+        glm::vec3( -1.3f, 1.0f, -1.5f )
+    };
+    
+    GLuint diffuseMap[10], specularMap[10], emissionMap[10];
+
+
+    GLuint VBO, VAO;
+    glGenVertexArrays( 1, &VAO );
+    glGenBuffers( 1, &VBO );
+    // Bind our Vertex Array Object first, then bind and set our buffers and pointers.
+    glBindVertexArray( VAO );
+    
+    glBindBuffer( GL_ARRAY_BUFFER, VBO );
+    glBufferData( GL_ARRAY_BUFFER, sizeof( vertices ), vertices, GL_STATIC_DRAW );
+    
+    // Position attribute
+    glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof( GLfloat ), ( GLvoid * )0 );
+    glEnableVertexAttribArray( 0 );
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid *)(3 * sizeof(GLfloat)));
+    glEnableVertexAttribArray( 1 );
+    // TexCoord attribute
+    glVertexAttribPointer( 2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof( GLfloat ), ( GLvoid * )( 6 * sizeof( GLfloat ) ) );
+    glEnableVertexAttribArray( 2 );
+    
+    glBindVertexArray( 0 ); // Unbind VAO
+    
+    // Load and create a texture
+    int width, height;
+    unsigned char *image;
+    
+    lightShader.Use();
+    glUniform1i(glGetUniformLocation(lightShader.Program, "material.diffuse"),  0);
+    glUniform1i(glGetUniformLocation(lightShader.Program, "material.specular"), 1);
+
+    // Create and compile our GLSL program from the shaders
+    GLuint programID = LoadShaders( "res/shaders/SmokeParticle.vs", "res/shaders/SmokeParticle.frag" );
+
+    // Vertex shader
+    GLuint CameraRight_worldspace_ID  = glGetUniformLocation(programID, "CameraRight_worldspace");
+    GLuint CameraUp_worldspace_ID  = glGetUniformLocation(programID, "CameraUp_worldspace");
+    GLuint ViewProjMatrixID = glGetUniformLocation(programID, "VP");
+
+    // fragment shader
+    GLuint TextureID  = glGetUniformLocation(programID, "myTextureSampler");
+
+    static GLfloat* g_particule_position_size_data = new GLfloat[MAX_SMOKE_PARTICLES * 4];
+    static GLubyte* g_particule_color_data         = new GLubyte[MAX_SMOKE_PARTICLES * 4];
+
+    for(int i=0; i<MAX_SMOKE_PARTICLES; i++){
+        ParticlesContainer[i].life = -1.0f;
+        ParticlesContainer[i].cameradistance = -1.0f;
+    }
+
+    GLuint Texture = loadDDS("res/images/smoke.jpg");
+
+    // The VBO containing the 4 vertices of the particles.
+    // Thanks to instancing, they will be shared by all particles.
+    static const GLfloat smoke_vertices[] = { 
+         -0.2f, -0.2f, 0.0f,
+          0.2f, -0.2f, 0.0f,
+         -0.2f,  0.2f, 0.0f,
+          0.2f,  0.2f, 0.0f,
+    };
+    GLuint billboard_vertex_buffer;
+    glGenBuffers(1, &billboard_vertex_buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, billboard_vertex_buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(smoke_vertices), smoke_vertices, GL_STATIC_DRAW);
+
+    // The VBO containing the positions and sizes of the particles
+    GLuint particles_position_buffer;
+    glGenBuffers(1, &particles_position_buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, particles_position_buffer);
+    // Initialize with empty (NULL) buffer : it will be updated later, each frame.
+    glBufferData(GL_ARRAY_BUFFER, MAX_SMOKE_PARTICLES * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+
+    // The VBO containing the colors of the particles
+    GLuint particles_color_buffer;
+    glGenBuffers(1, &particles_color_buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, particles_color_buffer);
+    // Initialize with empty (NULL) buffer : it will be updated later, each frame.
+    glBufferData(GL_ARRAY_BUFFER, MAX_SMOKE_PARTICLES * 4 * sizeof(GLubyte), NULL, GL_STREAM_DRAW);
+
+    // Game loop
+    double lastTime = glfwGetTime();
+    int nbFrames = 0;
+    while( !glfwWindowShouldClose( window ) )
+    {
+     // Measure speed
+        double currentTime = glfwGetTime();
+        nbFrames++;
+        if ( currentTime - lastTime >= 1.0 ){ // If last prinf() was more than 1 sec ago
+            // printf and reset timer
+            //printf("%f ms/frame\n", 1000.0/double(nbFrames));
+            nbFrames = 0;
+            lastTime += 1.0;
+        }
+
+        // Set frame time
+        GLfloat currentFrame = glfwGetTime( );
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+        
+        processInput(window);
+        // Check and call events
+        glfwPollEvents( );
+        
+        // Clear the colorbuffer
+        glClearColor( 0.4f, 0.6f, 0.6f, 1.0f );
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+        
+        // Draw
+        lightShader.Use( );
+        GLint lightDirLoc = glGetUniformLocation(lightShader.Program, "light.direction");
+        GLint viewPosLoc  = glGetUniformLocation(lightShader.Program, "viewPos");
+        glUniform3f(lightDirLoc, -0.2f, -1.0f, -0.3f);
+        glUniform3f(viewPosLoc, camera.GetPosition().x, camera.GetPosition().y, camera.GetPosition().z);
+        // Set lights properties
+        glUniform3f(glGetUniformLocation(lightShader.Program, "light.ambient"),  0.2f, 0.2f, 0.2f);
+        glUniform3f(glGetUniformLocation(lightShader.Program, "light.diffuse"),  0.5f, 0.5f, 0.5f);
+        glUniform3f(glGetUniformLocation(lightShader.Program, "light.specular"), 1.0f, 1.0f, 1.0f);
+        // Set material properties
+        glUniform1f(glGetUniformLocation(lightShader.Program, "material.shininess"), 100.0f);
+
+
+
+        
+        
+        glm::mat4 projection;
+        projection = glm::perspective(camera.GetZoom( ), (GLfloat)SCREEN_WIDTH/(GLfloat)SCREEN_HEIGHT, 0.1f, 1000.0f);
+        
+        // Create camera transformation
+        glm::mat4 view;
+        view = camera.GetViewMatrix( );
+
+        // Get the uniform locations
+        GLint modelLoc = glGetUniformLocation( lightShader.Program, "model" );
+        GLint viewLoc = glGetUniformLocation( lightShader.Program, "view" );
+        GLint projLoc = glGetUniformLocation( lightShader.Program, "projection" );
+        
+        // We will need the camera's position in order to sort the particles
+        // w.r.t the camera's distance.
+        // There should be a getCameraPosition() function in common/controls.cpp, 
+        // but this works too.
+        glm::vec3 CameraPosition(glm::inverse(view)[3]);
+
+        glm::mat4 ViewProjectionMatrix = projection * view;
+
+        // Pass the matrices to the shader
+        glUniformMatrix4fv( viewLoc, 1, GL_FALSE, glm::value_ptr( view ) );
+        glUniformMatrix4fv( projLoc, 1, GL_FALSE, glm::value_ptr( projection ) );
+        
+        glBindVertexArray( VAO );
+        
+        //for( GLuint i = 0; i < 10; i++ )
+        //{
+            // Calculate the model matrix for each object and pass it to shader before drawing
+            glm::mat4 model;
+            model = glm::translate( model, cubePositions[0] );
+            GLfloat angle = 20.0f * 0;
+            model = glm::rotate(model, angle, glm::vec3( 1.0f, 0.3f, 0.5f ) );
+            glUniformMatrix4fv( modelLoc, 1, GL_FALSE, glm::value_ptr( model ) );
+
+            glDrawArrays( GL_TRIANGLES, 0, 36 * 2 );
+        //}
+        
+        float x1, y1, z1;
+        int start = 36*15;
+        drawRain(false);
+        for (loop = 0; loop < MAX_RAIN_PARTICLES; loop++) {
+            if (par_sys[loop].alive == true) {
+                x1 = par_sys[loop].xpos;
+                y1 = par_sys[loop].ypos;
+                z1 = par_sys[loop].zpos + zoom;
+
+                // Bind Textures using texture units
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, diffuseMap[5]);
+                glBindVertexArray(VAO);
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, specularMap[5]);
+                glBindTexture( GL_TEXTURE_2D, VAO );
+                glUniform3f(glGetUniformLocation(lightShader.Program, "inc_rain"), inc_x_rain[loop], inc_y_rain[loop], inc_z_rain[loop]);
+                glUniform1i(glGetUniformLocation(lightShader.Program, "is_rain"), 1);
+                glUniform1i( glGetUniformLocation( lightShader.Program, "metal" ), 5 );
+                glDrawArrays( GL_LINES, start, start + 2);
+                glBufferData( GL_ARRAY_BUFFER, sizeof( vertices ), vertices, GL_STATIC_DRAW );
+                start += 2;
+                
+                // Update values
+                //Move 
+                // Adjust slowdown for speed!
+                par_sys[loop].ypos += par_sys[loop].vel / (slowdown*1000);
+                inc_y_rain[loop] += par_sys[loop].vel / (slowdown*1000);
+                par_sys[loop].vel += par_sys[loop].gravity;
+                // Decay
+                par_sys[loop].life -= par_sys[loop].fade;
+                
+                if (par_sys[loop].ypos <= accum) {
+                    par_sys[loop].life = -1.0;
+                }
+                //Revive 
+                if (par_sys[loop].life < 0.0) {
+                    initParticles(loop, starter);
+                }
+            }
+        }
+        
+        // Generate 10 new particule each millisecond,
+        // but limit this to 16 ms (60 fps), or if you have 1 long frame (1sec),
+        // newparticles will be huge and the next frame even longer.
+        int newparticles = (int)(deltaTime*7000.0);
+        if (newparticles > (int)(0.016f*7000.0))
+            newparticles = (int)(0.016f*7000.0);
+        
+        for(int i=0; i<newparticles; i++){
+            int particleIndex = FindUnusedParticle();
+            ParticlesContainer[particleIndex].life = 0.8f; // This SmokeParticle will live n seconds.
+            ParticlesContainer[particleIndex].pos = glm::vec3(middlePoint[0]+OFFSET_SMOKE*sin(rad),middlePoint[1],middlePoint[2]+OFFSET_SMOKE*cos(rad)); // spawn location
+
+            float spread = 1.5f;
+            glm::vec3 maindir = glm::vec3(0.0f, 10.0f, 0.0f);
+            glm::vec3 randomdir = glm::vec3(
+                (rand()%2000 - 1000.0f)/1000.0f,
+                (rand()%2000 - 1000.0f)/1000.0f,
+                (rand()%2000 - 1000.0f)/1000.0f
+            );
+            
+            ParticlesContainer[particleIndex].speed = maindir + randomdir*spread;
+            ParticlesContainer[particleIndex].r = rand() % 256;
+            ParticlesContainer[particleIndex].g = rand() % 256;
+            ParticlesContainer[particleIndex].b = rand() % 256;
+            ParticlesContainer[particleIndex].a = (rand() % 256) / 3;
+            ParticlesContainer[particleIndex].size = (rand()%1000)/2000.0f + 0.1f;
+        }
+
+        // Simulate all particles
+        int ParticlesCount = 0;
+        for(int i=0; i<MAX_SMOKE_PARTICLES; i++){
+
+            SmokeParticle& p = ParticlesContainer[i]; // shortcut
+
+            if(p.life > 0.0f){
+
+                // Decrease life
+                p.life -= deltaTime;
+                if (p.life > 0.0f){
+
+                    // Simulate simple physics : gravity only, no collisions
+                    p.speed += glm::vec3(0.0f,0.05f, 0.0f) * (float)deltaTime * 0.05f;
+                    p.pos += p.speed * (float)deltaTime;
+                    p.cameradistance = glm::length2( p.pos - CameraPosition );
+                    //ParticlesContainer[i].pos += glm::vec3(0.0f,10.0f, 0.0f) * (float)delta;
+
+                    // Fill the GPU buffer
+                    g_particule_position_size_data[4*ParticlesCount+0] = p.pos.x;
+                    g_particule_position_size_data[4*ParticlesCount+1] = p.pos.y;
+                    g_particule_position_size_data[4*ParticlesCount+2] = p.pos.z;
+                                                   
+                    g_particule_position_size_data[4*ParticlesCount+3] = p.size;
+                                                   
+                    g_particule_color_data[4*ParticlesCount+0] = p.r;
+                    g_particule_color_data[4*ParticlesCount+1] = p.g;
+                    g_particule_color_data[4*ParticlesCount+2] = p.b;
+                    g_particule_color_data[4*ParticlesCount+3] = p.a;
+
+                }else{
+                    // Particles that just died will be put at the end of the buffer in SortParticles();
+                    p.cameradistance = -1.0f;
+                }
+
+                ParticlesCount++;
+            }
+        }
+
+        SortParticles();
+
+        // Update the buffers that OpenGL uses for rendering.
+        // There are much more sophisticated means to stream data from the CPU to the GPU, 
+        // but this is outside the scope of this tutorial.
+        // http://www.opengl.org/wiki/Buffer_Object_Streaming
+        glBindBuffer(GL_ARRAY_BUFFER, particles_position_buffer);
+        glBufferData(GL_ARRAY_BUFFER, MAX_SMOKE_PARTICLES * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW); // Buffer orphaning, a common way to improve streaming perf. See above link for details.
+        glBufferSubData(GL_ARRAY_BUFFER, 0, ParticlesCount * sizeof(GLfloat) * 4, g_particule_position_size_data);
+
+        glBindBuffer(GL_ARRAY_BUFFER, particles_color_buffer);
+        glBufferData(GL_ARRAY_BUFFER, MAX_SMOKE_PARTICLES * 4 * sizeof(GLubyte), NULL, GL_STREAM_DRAW); // Buffer orphaning, a common way to improve streaming perf. See above link for details.
+        glBufferSubData(GL_ARRAY_BUFFER, 0, ParticlesCount * sizeof(GLubyte) * 4, g_particule_color_data);
+
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // Use our shader
+        glUseProgram(programID);
+
+        // Bind our texture in Texture Unit 0
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, Texture);
+        // Set our "myTextureSampler" sampler to use Texture Unit 0
+        glUniform1i(TextureID, 0);
+
+        // Same as the billboards tutorial
+        glUniform3f(CameraRight_worldspace_ID, view[0][0], view[1][0], view[2][0]);
+        glUniform3f(CameraUp_worldspace_ID   , view[0][1], view[1][1], view[2][1]);
+
+        glUniformMatrix4fv(ViewProjMatrixID, 1, GL_FALSE, &ViewProjectionMatrix[0][0]);
+
+        // 1rst attribute buffer : vertices
+        glEnableVertexAttribArray(3);
+        glBindBuffer(GL_ARRAY_BUFFER, billboard_vertex_buffer);
+        glVertexAttribPointer(
+            3,                  // attribute. No particular reason for 0, but must match the layout in the shader.
+            3,                  // size
+            GL_FLOAT,           // type
+            GL_FALSE,           // normalized?
+            0,                  // stride
+            (void*)0            // array buffer offset
+        );
+        
+        // 2nd attribute buffer : positions of particles' centers
+        glEnableVertexAttribArray(4);
+        glBindBuffer(GL_ARRAY_BUFFER, particles_position_buffer);
+        glVertexAttribPointer(
+            4,                                // attribute. No particular reason for 1, but must match the layout in the shader.
+            4,                                // size : x + y + z + size => 4
+            GL_FLOAT,                         // type
+            GL_FALSE,                         // normalized?
+            0,                                // stride
+            (void*)0                          // array buffer offset
+        );
+
+        // 3rd attribute buffer : particles' colors
+        glEnableVertexAttribArray(5);
+        glBindBuffer(GL_ARRAY_BUFFER, particles_color_buffer);
+        glVertexAttribPointer(
+            5,                                // attribute. No particular reason for 1, but must match the layout in the shader.
+            4,                                // size : r + g + b + a => 4
+            GL_UNSIGNED_BYTE,                 // type
+            GL_TRUE,                          // normalized?    *** YES, this means that the unsigned char[4] will be accessible with a vec4 (floats) in the shader ***
+            0,                                // stride
+            (void*)0                          // array buffer offset
+        );
+
+        // These functions are specific to glDrawArrays*Instanced*.
+        // The first parameter is the attribute buffer we're talking about.
+        // The second parameter is the "rate at which generic vertex attributes advance when rendering multiple instances"
+        // http://www.opengl.org/sdk/docs/man/xhtml/glVertexAttribDivisor.xml
+        glVertexAttribDivisor(3, 0); // particles vertices : always reuse the same 4 vertices -> 0
+        glVertexAttribDivisor(4, 1); // positions : one per quad (its center)                 -> 1
+        glVertexAttribDivisor(5, 1); // color : one per quad                                  -> 1
+
+        // Draw the particules !
+        // This draws many times a small triangle_strip (which looks like a quad).
+        // This is equivalent to :
+        // for(i in ParticlesCount) : glDrawArrays(GL_TRIANGLE_STRIP, 0, 4), 
+        // but faster.
+        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, ParticlesCount);
+
+        glDisableVertexAttribArray(3);
+        glDisableVertexAttribArray(4);
+        glDisableVertexAttribArray(5);
+
+        glBindVertexArray( 0 );
+        
+        // Swap the buffers
+        glBindBuffer( GL_ARRAY_BUFFER, VBO );
+        glBufferData( GL_ARRAY_BUFFER, sizeof( vertices ), vertices, GL_STATIC_DRAW );
+        glfwSwapBuffers( window );
+        glfwPollEvents();
+    }
+    
+    delete[] g_particule_position_size_data;
+
+    // Cleanup VBO and shader
+    glDeleteBuffers(1, &particles_color_buffer);
+    glDeleteBuffers(1, &particles_position_buffer);
+    glDeleteBuffers(1, &billboard_vertex_buffer);
+    glDeleteProgram(programID);
+    glDeleteTextures(1, &Texture);
+    //glDeleteVertexArrays(1, &VertexArrayID);
+
+
+    // Properly de-allocate all resources once they've outlived their purpose
+    glDeleteVertexArrays( 1, &VAO );
+    glDeleteBuffers( 1, &VBO );
+    glfwTerminate( );
+    
+    return EXIT_SUCCESS;
+}
+
+bool CheckPositionLowerSpeed(GLfloat move) {
+    return (middlePoint[0] + move < 22.0f) && (middlePoint[0] - move > 8.0f) && (middlePoint[2] + move < 10.0f) && (middlePoint[2] - move > -10.0f);
+}
+
+bool CheckPositionCanMoveForward(GLfloat move) {
+    return (middlePoint[0] + move * sin(rad) < 38.0f) && (middlePoint[2] + move * cos(rad) < 20.0f) && (middlePoint[0] + move * sin(rad) > -8.0f) && (middlePoint[2] + move * cos(rad) > -20.0f);
+}
+bool CheckPositionCanMoveBackward(GLfloat move) {
+    return (middlePoint[0] - move * sin(rad) < 38.0f) && (middlePoint[2] - move * cos(rad) < 20.0f) && (middlePoint[0] - move * sin(rad) > -8.0f) && (middlePoint[2] - move * cos(rad) > -20.0f);
+}
+
+// Moves/alters the camera positions based on user input
 void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -2136,39 +728,147 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
-// glfw: whenever the window size changed (by OS or user resize) this callback function executes
-// ---------------------------------------------------------------------------------------------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+// Is called whenever a key is pressed/released via GLFW
+void KeyCallback( GLFWwindow *window, int key, int scancode, int action, int mode )
 {
-    // make sure the viewport matches the new window dimensions; note that width and 
-    // height will be significantly larger than specified on retina displays.
-    glViewport(0, 0, width, height);
+    if( key == GLFW_KEY_ESCAPE && action == GLFW_PRESS )
+    {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+    }
+    
+    if ( key >= 0 && key < 1024 )
+    {
+        if( action == GLFW_PRESS )
+        {
+            keys[key] = true;
+        }
+        else if( action == GLFW_RELEASE )
+        {
+            bool up = keys[GLFW_KEY_UP];
+            bool down = keys[GLFW_KEY_DOWN];
+            
+            keys[key] = false;
+
+            if (up && !keys[GLFW_KEY_UP]) {
+                
+            }
+            if (down && !keys[GLFW_KEY_DOWN]) {
+                
+            }
+        }
+    }
 }
 
-
-// glfw: whenever the mouse moves, this callback is called
-// -------------------------------------------------------
-void mouse_callback(GLFWwindow* window, double xpos, double ypos)
+void MouseCallback( GLFWwindow *window, double xPos, double yPos )
 {
-    if (firstMouse)
+    if( firstMouse )
     {
-        lastX = xpos;
-        lastY = ypos;
+        lastX = xPos;
+        lastY = yPos;
         firstMouse = false;
     }
+    
+    GLfloat xOffset = xPos - lastX;
+    GLfloat yOffset = lastY - yPos;  // Reversed since y-coordinates go from bottom to left
+    
+    lastX = xPos;
+    lastY = yPos;
+    
+    camera.ProcessMouseMovement( xOffset, yOffset );
+}	
 
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
 
-    lastX = xpos;
-    lastY = ypos;
-
-    camera.ProcessMouseMovement(xoffset, yoffset);
+void ScrollCallback( GLFWwindow *window, double xOffset, double yOffset )
+{
+    camera.ProcessMouseScroll( yOffset );
 }
 
-// glfw: whenever the mouse scroll wheel scrolls, this callback is called
-// ----------------------------------------------------------------------
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
-{
-    camera.ProcessMouseScroll(yoffset);
+
+void initParticles(int idx, bool starter) {
+    par_sys[idx].alive = true;
+    par_sys[idx].life = 1.0;
+    par_sys[idx].fade = float(rand()%100)/10000.0f+0.0003f;
+                   
+    par_sys[idx].xpos = (float) (rand() % 21*3) - 13;
+    par_sys[idx].ypos = 18.0f;
+    par_sys[idx].zpos = (float) (rand() % 21*3) - 10;
+
+    if (!starter) {
+        inc_x_rain[idx] =  par_sys[idx].xpos - init_x_rain[idx];
+        inc_z_rain[idx] = par_sys[idx].zpos - init_z_rain[idx];
+        inc_y_rain[idx] = 0.0f;
+    } else {
+        init_x_rain[loop] = par_sys[idx].xpos;
+        init_z_rain[loop] = par_sys[idx].zpos;
+    }
+    
+    par_sys[idx].red = 0.5;
+    par_sys[idx].green = 0.5;
+    par_sys[idx].blue = 1.0;
+                    
+    par_sys[idx].vel = velocity;
+    par_sys[idx].gravity = -0.8;//-0.8;
+}
+
+void init(bool starter) {
+    for (loop = 0; loop < MAX_RAIN_PARTICLES; loop++) {
+        initParticles(loop, starter);
+    }
+}
+
+void drawRain(bool starter) {
+    float x, y, z;
+
+    for (loop = 0; loop < MAX_RAIN_PARTICLES; loop++) {
+        if (par_sys[loop].alive == true) {          
+             x = par_sys[loop].xpos;
+             y = par_sys[loop].ypos;
+             z = par_sys[loop].zpos + zoom;
+
+             if (starter) {
+                init_x_rain[loop] = x;
+                init_z_rain[loop] = z;
+             }
+
+            vertices[idxRain++] = x;
+            vertices[idxRain++] = y;
+            vertices[idxRain++] = z;
+
+            vertices[idxRain++] = 1.0f;
+            vertices[idxRain++] = 1.0f;
+            vertices[idxRain++] = 1.0f;
+
+            vertices[idxRain++] = 1.0f;
+            vertices[idxRain++] = 0.0f;
+
+            vertices[idxRain++] = x;
+            vertices[idxRain++] = y + 0.5f;
+            vertices[idxRain++] = z;
+
+            vertices[idxRain++] = 1.0f;
+            vertices[idxRain++] = 1.0f;
+            vertices[idxRain++] = 1.0f;
+
+            vertices[idxRain++] = 0.0f;
+            vertices[idxRain++] = 0.0f;
+            
+            // Update values
+            //Move
+            // Adjust slowdown for speed!
+            par_sys[loop].ypos += par_sys[loop].vel / (slowdown*100);
+            inc_y_rain[loop] += par_sys[loop].vel / (slowdown*100);
+            par_sys[loop].vel += par_sys[loop].gravity;
+            // Decay
+            par_sys[loop].life -= par_sys[loop].fade;
+            
+            if (par_sys[loop].ypos <= accum) {
+                par_sys[loop].life = -1.0;
+            }
+            //Revive 
+            if (par_sys[loop].life < 0.0) {
+                initParticles(loop, starter);
+            }
+        }
+    }
+    idxRain = objectLastIndex;
 }
