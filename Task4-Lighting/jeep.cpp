@@ -33,6 +33,9 @@ bool firstMouse = true;
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
 
+//lighting
+glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
+
 int main()
 {
     // glfw: initialize and configure
@@ -78,18 +81,20 @@ int main()
     // build and compile our shader zprogram
     // ------------------------------------
     Shader ourShader("7.4.camera.vs", "7.4.camera.fs");
+    Shader lightingShader("2.1.basic_lighting.vs", "2.1.basic_lighting.fs");
+    Shader lampShader("2.1.lamp.vs", "2.1.lamp.fs");
     
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
     float vertices[] = {
         // KOTAK 1
         //belakang
-        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, -1.0f,
-         1.0f, -0.5f, -0.5f,  1.0f, 0.0f, -1.0f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, -1.0f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, -1.0f,
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, -1.0f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, -1.0f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
+         1.0f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
+         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 1.0f,
+         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 1.0f,
+        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
 
         //depan
         -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
@@ -100,135 +105,135 @@ int main()
         -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
 
         // kiri
-        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
+        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
 
         //kanan
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f, 
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
+         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
 
          //bawah
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
 
         // atas
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
-         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f,  0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
+        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
+         1.0f,  0.5f, -0.5f,  1.0f, 1.0f, 0.5f,
+         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f,  0.5f, -0.5f,  0.0f, 1.0f, 0.5f,
 
         // ===========KOTAK 2===========
         //belakang
-        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.0f,
-         1.0f, -0.5f, -1.5f,  1.0f, 0.0f, 0.0f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.0f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.5f,
+         1.0f, -0.5f, -1.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 0.0f, 0.5f,
 
         //depan
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.0f,
-         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.0f,
-        -1.0f,  1.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.5f,
+         1.0f,  1.5f,  0.5f,  1.0f, 1.0f, 0.5f,
+        -1.0f,  1.5f,  0.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
 
         // kiri
-        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
+        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
 
         //kanan
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
+         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
 
          //bawah
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-         1.0f, -0.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.0f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+         1.0f, -0.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f, -0.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f, -0.5f, -1.5f,  0.0f, 1.0f, 0.5f,
 
         // atas
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.0f,
-         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.0f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-        -1.0f,  1.5f,  0.5f,  0.0f, 0.0f, 0.0f,
-        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.0f,
+        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
+         1.0f,  1.5f, -1.5f,  1.0f, 1.0f, 0.5f,
+         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+         1.0f,  1.5f,  0.5f,  1.0f, 0.0f, 0.5f,
+        -1.0f,  1.5f,  0.5f,  0.0f, 0.0f, 0.5f,
+        -1.0f,  1.5f, -1.5f,  0.0f, 1.0f, 0.5f,
 
         // ===========KOTAK 3===========
         // KOTAK 3
         //belakang
-        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.0f,
-         0.15f, -0.25f, -0.25f,  1.0f, 0.0f, 0.0f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.0f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.5f,
+         0.15f, -0.25f, -0.25f,  1.0f, 0.0f, 0.5f,
+         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 0.0f, 0.5f,
 
         //depan
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.0f,
-         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.0f,
-        -0.15f,  0.25f,  0.25f,  0.0f, 1.0f, 0.0f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
+        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
+         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.5f,
+         0.15f,  0.25f,  0.25f,  1.0f, 1.0f, 0.5f,
+        -0.15f,  0.25f,  0.25f,  0.0f, 1.0f, 0.5f,
+        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
 
         // kiri
-        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-        -0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
-        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
+        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+        -0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
+        -0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
 
         //kanan
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-         0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
+         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+         0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+         0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
+         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
 
          //bawah
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-         0.15f, -0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
-        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+         0.15f, -0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+         0.15f, -0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+        -0.15f, -0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
+        -0.15f, -0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
 
         // atas
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.0f,
-         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.0f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.0f,
-        -0.15f,  0.25f,  0.25f,  0.0f, 0.0f, 0.0f,
-        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.0f
+        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f,
+         0.15f,  0.25f, -0.25f,  1.0f, 1.0f, 0.5f,
+         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+         0.15f,  0.25f,  0.25f,  1.0f, 0.0f, 0.5f,
+        -0.15f,  0.25f,  0.25f,  0.0f, 0.0f, 0.5f,
+        -0.15f,  0.25f, -0.25f,  0.0f, 1.0f, 0.5f
     };
     // world space positions of our cubes
     glm::vec3 cubePositions[] = {
@@ -264,11 +269,6 @@ int main()
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-
-    // load and create a texture 
-    // -------------------------
-    unsigned int texture1, texture2;
-
     // second, configure the light's VAO (VBO stays the same; the vertices are the same for the light object which is also a 3D cube)
     unsigned int lightVAO;
     glGenVertexArrays(1, &lightVAO);
@@ -279,6 +279,9 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+    // load and create a texture 
+    // -------------------------
+    unsigned int texture1, texture2;
     // texture 1
     // ---------
     glGenTextures(1, &texture1);
@@ -363,28 +366,20 @@ int main()
         // activate shader
         ourShader.use();
 
-
-        // be sure to activate shader when setting uniforms/drawing objects
         lightingShader.use();
         lightingShader.setVec3("objectColor", 1.0f, 0.5f, 0.31f);
         lightingShader.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
         lightingShader.setVec3("lightPos", lightPos);
 
-        // view/projection transformations
+        // pass projection matrix to shader (note that in this case it could change every frame)
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
         lightingShader.setMat4("projection", projection);
         lightingShader.setMat4("view", view);
 
-        // world transformation
-        glm::mat4 model = glm::mat4(1.0f);
-        lightingShader.setMat4("model", model);
-        // pass projection matrix to shader (note that in this case it could change every frame)
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         ourShader.setMat4("projection", projection);
 
         // camera/view transformation
-        glm::mat4 view = camera.GetViewMatrix();
         ourShader.setMat4("view", view);
 
         // render boxes
@@ -402,17 +397,11 @@ int main()
             // calculate the model matrix for each object and pass it to shader before drawing
             glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
             model = glm::translate(model, cubePositions[i]);
+            lightingShader.setMat4("model", model);
+            
             float angle = 20.0f * i;
             //model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
             ourShader.setMat4("model", model);
-
-            //lampShader.use();
-            //lampShader.setMat4("projection", projection);
-            //lampShader.setMat4("view", view);
-            //model = glm::mat4(1.0f);
-            //model = glm::translate(model, lightPos);
-            //model = glm::scale(model, glm::vec3(0.2f)); // a smaller cube
-            //lampShader.setMat4("model", model);
 
             glDrawArrays(GL_TRIANGLES, startidx, startidx+36);
         }
